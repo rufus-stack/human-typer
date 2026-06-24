@@ -12,6 +12,16 @@
 
 import fs from "node:fs";
 
+// Load a local .env (KEY=VALUE per line) from the current directory if present,
+// so `node landing/seed_supabase.mjs` works without extra flags. Real environment
+// variables still take precedence.
+try {
+    for (const line of fs.readFileSync(".env", "utf8").split("\n")) {
+        const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
+        if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, "");
+    }
+} catch { /* no .env — rely on real env vars */ }
+
 const URL_ = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const FILE = process.argv[2] || "LICENSE_KEYS.txt";

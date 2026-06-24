@@ -11,5 +11,9 @@ __pycache__/
 AppIcon.iconset/
 icon_1024.png
 
-# NEVER commit or ship the plaintext keys — only licenses.py (hashes) ships.
+# NEVER commit or ship the plaintext keys.
 LICENSE_KEYS.txt
+
+# Local secrets for seeding (Supabase service_role etc.) — never commit.
+.env
+.env.*
