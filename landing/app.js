@@ -40,6 +40,8 @@ document.getElementById('year').textContent = new Date().getFullYear();
     const downloads = document.getElementById('downloads');
     const dlMac = document.getElementById('dl-mac');
     const dlWin = document.getElementById('dl-win');
+    const dlMacIntel = document.getElementById('dl-mac-intel');
+    const dlMacIntelWrap = document.getElementById('dl-mac-intel-wrap');
 
     if (!form) return;
 
@@ -61,6 +63,10 @@ document.getElementById('year').textContent = new Date().getFullYear();
             if (res.ok && data.ok && data.downloads) {
                 dlMac.setAttribute('href', data.downloads.macArm);
                 dlWin.setAttribute('href', data.downloads.windows);
+                if (data.downloads.macIntel && dlMacIntel && dlMacIntelWrap) {
+                    dlMacIntel.setAttribute('href', data.downloads.macIntel);
+                    dlMacIntelWrap.hidden = false;
+                }
                 gate.classList.add('hidden');
                 downloads.classList.remove('hidden');
             } else {
