@@ -48,9 +48,8 @@ module.exports = async (req, res) => {
     res.status(200).json({
         ok: true,
         downloads: {
-            windows:  `${base}/HumanTyper-Windows.zip`,
-            macArm:   `${base}/HumanTyper-macOS-AppleSilicon.zip`,
-            macIntel: `${base}/HumanTyper-macOS-Intel.zip`,
+            windows: `${base}/HumanTyper-Windows.zip`,
+            macArm:  `${base}/HumanTyper-macOS-AppleSilicon.zip`,
         },
     });
 };

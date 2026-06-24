@@ -40,7 +40,6 @@ document.getElementById('year').textContent = new Date().getFullYear();
     const downloads = document.getElementById('downloads');
     const dlMac = document.getElementById('dl-mac');
     const dlWin = document.getElementById('dl-win');
-    const dlMacIntel = document.getElementById('dl-mac-intel');
 
     if (!form) return;
 
@@ -62,7 +61,6 @@ document.getElementById('year').textContent = new Date().getFullYear();
             if (res.ok && data.ok && data.downloads) {
                 dlMac.setAttribute('href', data.downloads.macArm);
                 dlWin.setAttribute('href', data.downloads.windows);
-                dlMacIntel.setAttribute('href', data.downloads.macIntel);
                 gate.classList.add('hidden');
                 downloads.classList.remove('hidden');
             } else {
