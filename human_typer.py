@@ -31,6 +31,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -232,13 +234,14 @@ def start_global_abort_listener() -> bool:
     return False
 
 
-# --- Offline license gate ---------------------------------------------------
-# Only SHA-256 hashes of the valid keys are embedded; the plaintext keys live
-# solely in LICENSE_KEYS.txt and are handed out to buyers (one-time purchase).
-try:
-    from licenses import LICENSE_HASHES
-except Exception:
-    LICENSE_HASHES = set()
+# --- Online license activation ----------------------------------------------
+# Keys are validated by our server (Supabase-backed), which binds each key to ONE
+# device and supports revocation. Activation needs internet once; afterwards the
+# local record (tied to this machine's fingerprint) gates the app, re-checked
+# online at launch (fail-open when offline, so offline use keeps working).
+ACTIVATE_URL = os.environ.get(
+    "HUMANTYPER_ACTIVATE_URL", "https://humantypist.rufaiahmed.com/api/activate"
+)
 
 
 def _config_dir() -> str:
@@ -263,34 +266,118 @@ def _normalize_key(key: str) -> str:
     return "".join(ch for ch in key if ch.isalnum()).upper()
 
 
-def _hash_key(key: str) -> str:
-    return hashlib.sha256(_normalize_key(key).encode("utf-8")).hexdigest()
+def _machine_id() -> str:
+    """A stable, hashed per-machine fingerprint so a key binds to one device."""
+    raw = ""
+    try:
+        if sys.platform == "darwin":
+            out = subprocess.run(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+                                 capture_output=True, text=True).stdout
+            for line in out.splitlines():
+                if "IOPlatformUUID" in line:
+                    raw = line.split('"')[-2]
+                    break
+        elif sys.platform.startswith("win"):
+            out = subprocess.run(
+                ["reg", "query", r"HKLM\SOFTWARE\Microsoft\Cryptography", "/v", "MachineGuid"],
+                capture_output=True, text=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            ).stdout
+            for tok in out.split():
+                if len(tok) >= 32 and "-" in tok:
+                    raw = tok
+                    break
+        else:
+            for p in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+                try:
+                    with open(p) as fh:
+                        raw = fh.read().strip()
+                    if raw:
+                        break
+                except Exception:
+                    pass
+    except Exception:
+        raw = ""
+    if not raw:
+        import getpass
+        import platform
+        raw = f"{platform.node()}|{getpass.getuser()}|{platform.machine()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _post_activate(key: str, timeout: float = 12.0):
+    """Ask the server to activate/re-check a key for this device.
+
+    Returns {"ok": True} / {"ok": False, "reason": "..."}, or None if the server
+    is unreachable (offline).
+    """
+    payload = json.dumps({"key": key, "device_id": _machine_id()}).encode("utf-8")
+    req = urllib.request.Request(
+        ACTIVATE_URL, data=payload,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read().decode("utf-8"))
+        except Exception:
+            return {"ok": False, "reason": "invalid"}
+    except Exception:
+        return None  # offline / network error
+
+
+def _local_activation():
+    try:
+        with open(_activation_file(), "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
+def _clear_activation() -> None:
+    try:
+        os.remove(_activation_file())
+    except Exception:
+        pass
 
 
 def is_activated() -> bool:
-    """True if a previously activated key is still recorded and still valid."""
-    if not LICENSE_HASHES:
-        # No embedded key list (e.g. dev build) -> don't lock the user out.
-        return True
-    try:
-        with open(_activation_file(), "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data.get("key_hash") in LICENSE_HASHES
-    except Exception:
-        return False
+    """Fast local gate: a saved activation bound to THIS machine. No network."""
+    data = _local_activation()
+    return bool(data and data.get("key") and data.get("device_id") == _machine_id())
 
 
-def activate(key: str) -> bool:
-    """Validate a key and persist activation. Returns True on success."""
-    digest = _hash_key(key)
-    if digest not in LICENSE_HASHES:
-        return False
-    try:
-        with open(_activation_file(), "w", encoding="utf-8") as fh:
-            json.dump({"key_hash": digest}, fh)
-    except Exception:
-        pass
-    return True
+def revalidate_online() -> None:
+    """Re-check the saved key with the server; drop it if revoked/invalid/moved.
+
+    Fail-open when offline so a buyer without internet can still use the app.
+    """
+    data = _local_activation()
+    if not data or not data.get("key"):
+        return
+    res = _post_activate(data["key"], timeout=6.0)
+    if res is not None and not res.get("ok"):
+        _clear_activation()
+
+
+def activate(key: str) -> dict:
+    """Activate a key for this device via the server. Returns {ok, reason?}."""
+    key = (key or "").strip()
+    if not key:
+        return {"ok": False, "reason": "missing"}
+    res = _post_activate(key)
+    if res is None:
+        return {"ok": False, "reason": "offline"}
+    if res.get("ok"):
+        try:
+            with open(_activation_file(), "w", encoding="utf-8") as fh:
+                json.dump({"key": _normalize_key(key), "device_id": _machine_id()}, fh)
+        except Exception:
+            pass
+        return {"ok": True}
+    return {"ok": False, "reason": res.get("reason", "invalid")}
 
 
 def _gauss_positive(mean: float, rel_std: float) -> float:
@@ -552,6 +639,7 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
         elif parsed.path == "/app.js":
             self.serve_static("app.js", "application/javascript")
         elif parsed.path == "/api/license":
+            revalidate_online()   # drops the local record if the key was revoked/moved
             self.send_json({"activated": is_activated()})
         elif parsed.path == "/api/status":
             self.send_json({
@@ -578,13 +666,10 @@ class GUIRequestHandler(BaseHTTPRequestHandler):
             body = self._read_body()
             try:
                 params = json.loads(body)
-                key = params.get("key", "")
-                if activate(key):
-                    self.send_json({"activated": True})
-                else:
-                    self.send_json({"activated": False, "error": "Invalid license key."}, 400)
+                result = activate(params.get("key", ""))
+                self.send_json({"activated": bool(result.get("ok")), "reason": result.get("reason", "")})
             except Exception as e:
-                self.send_json({"error": str(e)}, 400)
+                self.send_json({"activated": False, "reason": "error", "error": str(e)}, 400)
 
         elif parsed.path == "/api/type":
             if not is_activated():

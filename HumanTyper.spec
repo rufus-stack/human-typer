@@ -14,7 +14,7 @@ ICON = _icon if os.path.exists(_icon) else None
 
 datas = [('gui', 'gui')]          # bundle the web UI assets
 binaries = []
-hiddenimports = ['licenses']      # embedded license-key hashes, imported dynamically
+hiddenimports = []                # keys are validated online now, nothing to embed
 
 # Pull in pywebview and its platform webview backend (pyobjc on macOS,
 # pythonnet/WebView2 on Windows). Skipped gracefully if not installed.

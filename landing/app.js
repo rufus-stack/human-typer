@@ -72,8 +72,25 @@ document.getElementById('year').textContent = new Date().getFullYear();
                 }],
             },
             callback: function (response) {
-                showMsg('Payment successful (ref: ' + response.reference + '). Your license key is on its way to '
-                    + email + ' — check your inbox and spam in a few minutes, then download below and paste it into the app.', false);
+                showMsg('Payment received — issuing your license key…', false);
+                fetch('/api/claim', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reference: response.reference }),
+                }).then((r) => r.json()).then((d) => {
+                    if (d && d.ok && d.status === 'key_sent') {
+                        showMsg('Done! Your license key was emailed to ' + email
+                            + '. Check your inbox (and spam), then download below and paste it into the app.', false);
+                    } else if (d && d.status === 'already_processed') {
+                        showMsg('Your key was already emailed to ' + email + '. Check your inbox and spam folder.', false);
+                    } else {
+                        showMsg('Payment received (ref: ' + response.reference
+                            + '). If your key does not arrive within a few minutes, email me@rufaiahmed.com with this reference.', false);
+                    }
+                }).catch(() => {
+                    showMsg('Payment received (ref: ' + response.reference
+                        + '). If your key does not arrive shortly, email me@rufaiahmed.com with this reference.', false);
+                });
             },
             onClose: function () {
                 showMsg('Checkout was closed before payment. You can start again whenever you are ready.', true);

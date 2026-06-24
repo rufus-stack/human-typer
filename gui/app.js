@@ -79,13 +79,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 licenseError.classList.add('hidden');
                 showApp();
             } else {
-                showLicenseError(data.error || 'Invalid license key.');
+                showLicenseError(reasonMessage(data.reason));
             }
         } catch (err) {
             showLicenseError('Could not reach the activation engine.');
         } finally {
             btnActivate.disabled = false;
             btnActivate.textContent = 'Activate';
+        }
+    }
+
+    function reasonMessage(reason) {
+        switch (reason) {
+            case 'in_use':  return 'This key is already activated on another device.';
+            case 'revoked': return 'This key has been disabled. Contact me@rufaiahmed.com.';
+            case 'offline': return 'Could not reach the activation server. Check your internet and try again.';
+            case 'missing': return 'Please enter your license key.';
+            default:        return 'That license key is not valid.';
         }
     }
 
